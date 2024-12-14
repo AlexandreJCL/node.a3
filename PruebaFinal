@@ -1,0 +1,100 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <WiFiClientSecure.h>
+
+// Configuracion WiFi
+const char* ssid = "WIFI226D1";
+const char* password = "YYZQZJMNESCYDGNZ";
+
+// Configuracion MQTT
+const char* mqtt_server = "b5c381230e574839b8eebc8c461fb126.s1.eu.hivemq.cloud";
+const int mqtt_port = 8883;
+const char* mqtt_user = "Alexandre";
+const char* mqtt_password = "Alexandre298";
+const char* mqtt_topic_pub = "test/topic/pub";
+const char* mqtt_topic_sub = "test/topic/sub";
+
+WiFiClientSecure wifiClient;
+PubSubClient client(wifiClient);
+
+// Configuracion del LED
+const int ledPin = 2; // Pin GPIO para el LED
+
+void setupWifi() {
+  Serial.print("Conectando a WiFi...");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi conectado.");
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Mensaje recibido en topic: ");
+  Serial.println(topic);
+  Serial.print("Mensaje: ");
+
+  String message;
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+    message += (char)payload[i];
+  }
+  Serial.println();
+
+  // Encender o apagar el LED segun el mensaje
+  if (message == "ON") {
+    digitalWrite(ledPin, HIGH);
+    Serial.println("LED encendido.");
+  } else if (message == "OFF") {
+    digitalWrite(ledPin, LOW);
+    Serial.println("LED apagado.");
+  }
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Conectando al broker MQTT...");
+    if (client.connect("ESP32Client", mqtt_user, mqtt_password)) {
+      Serial.println("Conectado.");
+      client.subscribe(mqtt_topic_sub);
+    } else {
+      Serial.print("Fallo, rc=");
+      Serial.print(client.state());
+      Serial.println(" Intentando de nuevo en 5 segundos.");
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  setupWifi();
+
+  // Configurar el pin del LED como salida
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW); // Apagar el LED al inicio
+
+  wifiClient.setInsecure(); // Solo para pruebas, elimina esta linea y usa un certificado en produccion.
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback);
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  // Publicar un mensaje JSON
+  static unsigned long lastPublishTime = 0;
+  if (millis() - lastPublishTime > 5000) {
+    lastPublishTime = millis();
+    String message = "{ \"metricas\": { \"tiempo_publicacion_ms\": 30, \"tiempo_suscripcion_ms\": 30, \"velocidad_transferencia_mbps\": 10, \"tasa_perdida_mensajes\": 0.0 }, \"estado_conexion\": { \"wifi\": \"conectado\", \"mqtt\": \"conectado\" }, \"estado_leds\": { \"LED1\": \"ON\" }, \"reconexion\": { \"tiempo_wifi_ms\": 1200, \"tiempo_mqtt_ms\": 800 } }";
+    if (client.publish(mqtt_topic_pub, message.c_str())) {
+      Serial.println("Mensaje publicado correctamente.");
+    } else {
+      Serial.println("Error al publicar el mensaje.");
+    }
+  }
+}
